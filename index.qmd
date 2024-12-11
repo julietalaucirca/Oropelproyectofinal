@@ -1,0 +1,632 @@
+---
+title: "Proyecto Final del curso Programación en R"
+subtitle: "Curso PF 0953-01"
+author: "Julieta Laucirica"
+toc: true
+format: 
+  html:
+    code-fold: true
+execute: 
+  echo: true
+theme: lux
+lang: es
+editor: visual
+---
+
+# Distribución de la serpiente Oropel o "Bothriechis schlegelii"
+
+![](https://serpientesdecostarica.com/wp-content/uploads/2021/10/1080px-Bothriechis_schlegelii_La_Selva_Biological_Station.jpg)
+
+::: callout-note
+La bocaracá es una serpiente pequeña o mediana que alcanza los 95 cm de longitud, los adultos miden en promedio entre 50 y 70 cm. Las hembras tienden a ser más largas y robustas que los machos. El cuerpo es relativamente delgado y poseen una cabeza chata, claramente distinguible del cuello, con un hocico agudo. Como otros miembros de su género, la bocaracá posee una cola prensil, relativamente corta. La característica diagnóstica más relevante para su identificación es la presencia de proyecciones en forma de cuerno en la escama supraocular (la escama inmediatamente superior al ojo), lo que le confiere un aspecto de pestaña, por lo que se conoce también como «toboba de pestañas». La coloración de fondo es extremadamente variable en esta especie, de verde a gris, café, amarillo, dorado, e incluso rosado y blanco. El patrón de color también varía enormemente y está compuesto por complejos diseños, los cuales permiten identificar individuos distintos basados en su tonalidad. Algunos tipos de bocaracá que poseen coloración amarilla o dorada se conocen popularmente como «serpiente Oropel», y se consideran, de manera equivocada, como una especie distinta. Esto es un error, pues el amarillo es simplemente una de los muchos colores que puede presentar esta especie.
+
+La bocaracá es una variedad arborícola, usualmente activa durante la noche. Posee una distribución amplia, en el Caribe desde el noreste de México al noroeste de Venezuela, y en el Pacífico desde el sureste de Costa Rica hasta Ecuador. En Costa Rica se encuentra desde el nivel del mar hasta los 1 500 m de elevación. *Fuente: Instituto Clodomiro Picado (https://www.icp.ucr.ac.cr/es/informacion-y-materiales/serpientes-venenosas-de-costa-rica/bothriechis-schlegelii)*
+:::
+
+## Determinación de variables
+
+```{r}
+#| label: datosgenerales
+#| message: false
+#| warning: false
+#| collapse: true
+
+# Nombre de la especie
+especie <- "Bothriechis schlegelii"
+
+# Desplazamiento (offset) para delimitar el área de estudio
+desplazamiento = 5
+
+# Resolución espacial de los datos climáticos
+resolucion = 10
+
+# SSP
+ssp <- "126"
+
+# GCM
+gcm <- "HadGEM3-GC31-LL"
+
+# Proporción de datos de entreamiento a utilizar en el modelo
+proporcion_entrenamiento = 0.7
+```
+
+## Carga de paquetes
+
+```{r}
+#| label: cargapaquetes
+#| warning: false
+#| message: false
+#| collapse: true
+# Colección de paquetes de Tidyverse
+library(tidyverse)
+
+# Estilos para ggplot2
+library(ggthemes)
+
+# Paletas de colores de RColorBrewer
+library(RColorBrewer)
+
+# Paletas de colores de viridis
+library(viridisLite)
+
+# Gráficos interactivos
+library(plotly)
+
+# Manejo de datos vectoriales
+library(sf)
+
+# Manejo de datos raster
+library(terra)
+
+# Manejo de datos raster
+library(raster)
+
+# Mapas interactivos
+library(leaflet)
+
+# Acceso a datos en GBIF
+library(rgbif)
+
+# Acceso a datos climáticos
+library(geodata)
+
+# Modelado de distribución de especies
+library(dismo)
+```
+
+## Consulta en GBIF de registros sobre la especie seleccionada
+
+```{r}
+#| label: consultagbif
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Consultar el API de GBIF
+respuesta <- occ_search(
+  scientificName = especie, 
+  hasCoordinate = TRUE,
+  hasGeospatialIssue = FALSE,
+  limit = 10000
+)
+
+# Extraer datos de presencia
+presencia <- respuesta$data
+```
+
+### Guardar los datos en un archivo CSV
+
+```{r}
+#| label: datoscsv
+#| warning: false
+#| message: false
+#| collapse: true
+# Guardar los datos de presencia en un archivo CSV
+write_csv(presencia, 'presencia2.csv')
+```
+
+### Lectura de archivo csv
+
+```{r}
+#| label: lecturacsv
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Leer en un dataframe los datos de presencia de un archivo CSV
+presencia <- read_csv('presencia2.csv')
+
+# Crear un objeto sf a partir del dataframe
+presencia <- st_as_sf(
+  presencia,
+  coords = c("decimalLongitude", "decimalLatitude"),
+  remove = FALSE, # conservar las columnas de las coordenadas
+  crs = 4326
+)
+```
+
+## Mapa de distribución de la serpiente Oropel
+
+```{r}
+#| label: mapapresencia
+#| message: false
+#| warning: false
+#| collapse: true
+
+# Mapa
+leaflet() |>
+  addTiles(group = "Mapa general") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales"
+  ) |>
+  addProviderTiles(
+    providers$CartoDB.Positron, 
+    group = "Mapa blanco"
+  ) |>  
+  addCircleMarkers(
+    # capa de registros de presencia (puntos)
+    data = presencia,
+    stroke = F,
+    radius = 3,
+    fillColor = '#EEC900',
+    fillOpacity = 1,
+    popup = paste(
+      paste0("<strong>País: </strong>", presencia$country),
+      paste0("<strong>Localidad: </strong>", presencia$locality),
+      paste0("<strong>Fecha: </strong>", presencia$eventDate),
+      paste0("<strong>Fuente: </strong>", presencia$institutionCode),
+      paste0("<a href='", presencia$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    group = "Registros de Bothriechis schlegelii"
+  ) |>
+  addLayersControl(
+    baseGroups = c("Mapa general", "Imágenes satelitales", "Mapa blanco"),
+    overlayGroups = c("Registros de Bothriechis schlegelii"))
+```
+
+## Determinación del área de estudio en función de la presencia de la especie seleccionada
+
+```{r}
+#| label: areaestudio
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Delimitar la extensión del área de estudio
+area_estudio <- ext(
+  min(presencia$decimalLongitude) - desplazamiento, 
+  max(presencia$decimalLongitude) + desplazamiento,
+  min(presencia$decimalLatitude) - desplazamiento, 
+  max(presencia$decimalLatitude) + desplazamiento
+)
+```
+
+## Obtención de datos actuales climáticos de la plataforma Worldclim
+
+```{r}
+#| label: climaactual
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Obtener datos climáticos actuales
+clima_actual <- worldclim_global(
+  var = 'bio', 
+  res = resolucion, 
+  path = tempdir()
+)
+
+# Recortar los datos climáticos para el área de estudio
+clima_actual <- crop(clima_actual, area_estudio)
+
+# Desplegar nombres de las variables climáticas
+names(clima_actual)
+```
+
+## Obtención de escenarios climáticos futuros del proyecto CMIP6
+
+```{r}
+#| label: climafuturo
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Obtener datos climáticos para escenario futuro
+clima_futuro <- cmip6_world(
+  var = "bioc",
+  res = resolucion,
+  ssp = ssp,
+  model = gcm,
+  time = "2041-2060",
+  path = tempdir()
+)
+
+# Recortar los datos climáticos para el área de estudio
+clima_futuro <- crop(clima_futuro, area_estudio)
+
+# Desplegar nombres de las variables
+names(clima_futuro)
+```
+
+::: callout-note
+Los nuevos escenarios representan distintos niveles de desarrollo socioeconómicos, así como distintos resultados de concentraciones de gases atmosféricos de efecto invernadero. Existen 5 niveles de SSP que describen desde el escenario futuro más amable (1) hasta el más hostil (5).
+
+En este caso se utilizó el "Shared Social Pathway" clasificado como "126", que se consiera el más optimista de los escenarios. Este escenario representa un futuro sostenible con bajas emisiones de gases de efecto invernadero, similar al RCP 2.6. Se caracteriza por un desarrollo económico equilibrado y un enfoque en la sostenibilidad y la reducción de desigualdades. Se espera que el forzamiento radiativo alcance 2.6 W/m² para el año 2100.Este escenario proyecta un calentamiento global limitado, con menores impactos negativos en los sistemas climáticos y ecológicos, y una mayor capacidad de adaptación y mitigación.
+
+En la siguiente matriz se inscriben los distintos modelos:
+:::
+
+![](https://climate-scenarios.canada.ca/images/cmip6/SSPs/cmip6_SSPs_figure2.png)
+
+*Fuente: [Climate Scenarios Canada](https://climate-scenarios.canada.ca/?page=cmip6-overview-notes)*
+
+## Armado de dataframe con coordenadas
+
+```{r}
+#| label: dfcoordenadas
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Crear dataframe con columnas de longitud y latitud
+coordenadas_presencia <- data.frame(
+  decimalLongitude = presencia$decimalLongitude,
+  decimalLatitude = presencia$decimalLatitude
+)
+
+# Eliminar coordenadas duplicadas
+coordenadas_presencia <- unique(coordenadas_presencia)
+```
+
+## Configuración de elementos del modelo Maxent
+
+```{r}
+#| label: semillamodelo
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Establecer una "semilla" para garantizar que la selección aleatoria sea reproducible
+set.seed(123)
+
+# Cantidad de registros de presencia
+n_presencia <- nrow(coordenadas_presencia)
+
+# Con sample(), se selecciona aleatoriamente una proporción (ej. 0.7) 
+# de los índices de los datos de presencia para el conjunto de entrenamiento
+indices_entrenamiento <- sample(
+  1:n_presencia, 
+  size = round(proporcion_entrenamiento * n_presencia)
+)
+
+# Crear el subconjunto de entrenamiento utilizando los índices seleccionados
+entrenamiento <- coordenadas_presencia[indices_entrenamiento, ]
+
+# Crear el subconjunto de evaluación con los datos restantes
+evaluacion <- coordenadas_presencia[-indices_entrenamiento, ]
+```
+
+### Conversión de datos de clima actual para el modelo
+
+```{r}
+#| label: conversiondatos
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Los datos de clima deben convertirse al formato que usa el paquete raster
+# debido a es este el que acepta el paquete dismo
+clima_actual <- raster::stack(clima_actual)
+
+# Generar el modelo
+modelo_actual <- maxent(x = clima_actual, p = entrenamiento)
+
+# Aplicar el modelo entrenado al clima actual
+prediccion_actual <- predict(modelo_actual, clima_actual)
+```
+
+### Conversión de datos de clima futuro para el modelo
+
+```{r}
+#| label: conversiondato2
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Convertir variables climáticas futuras al formato raster stack
+clima_futuro_raster <- raster::stack(clima_futuro)
+
+# Asegurar que las variables tengan los mismos nombres y orden
+names(clima_futuro_raster) <- names(clima_actual)
+
+# Proyectar el modelo al clima futuro
+prediccion_futuro <- predict(modelo_actual, clima_futuro_raster)
+```
+
+## Evaluación del modelo
+
+```{r}
+#| label: evaluacion
+#| message: false
+#| warning: false
+#| collapse: true
+
+# terra::extract() extrae los valores del raster de predicción 
+# en las coordenadas de evaluación
+# eval_pres almacena los valores de idoneidad predichos 
+# en los puntos de evaluación de presencia
+eval_pres <- terra::extract(
+  prediccion_actual,
+  evaluacion[, c('decimalLongitude', 'decimalLatitude')]
+)
+
+# Generar puntos aleatorios dentro del área de estudio definida. 
+# Estos puntos se asumen como ausencias de la especie.
+ausencias <- randomPoints(mask = clima_actual, n = 1000)
+
+# eval_aus almacena los valores de idoneidad predichos
+# en los puntos de ausencia
+eval_aus <- terra::extract(
+  prediccion_actual, 
+  ausencias
+)
+
+# Generar estadísticas de evaluación del modelo
+resultado_evaluacion <- evaluate(p = eval_pres, a = eval_aus)
+```
+
+### Gráfico ROC con los resultados de la evaluación del modelo
+
+```{r}
+#| label: graficoroc
+#| message: false
+#| warning: false
+#| collapse: true
+
+# Datos para graficar la curva ROC
+datos_roc <- data.frame(
+  FPR = resultado_evaluacion@FPR,
+  TPR = resultado_evaluacion@TPR,
+  Umbral = resultado_evaluacion@t
+)
+
+# Valor AUC
+auc <- resultado_evaluacion@auc
+
+# Gráfico ggplot2
+grafico_ggplot2 <-
+  ggplot(
+    datos_roc, 
+    aes(
+      x = FPR, 
+      y = TPR,
+      u = Umbral
+    )
+  ) +
+  geom_line(
+    color = "green", 
+    size = 1
+  ) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "orange") +
+  labs(title = paste("Curva ROC (AUC =", round(auc, 3), ")"),
+       x = "Tasa de falsos positivos (FPR)",
+       y = "Tasa de verdaderos positivos (TPR)") +
+  theme_minimal()
+
+# Gráfico plotly
+ggplotly(grafico_ggplot2) |> 
+  config(locale = 'es')
+```
+
+## Cartografía de los resultados
+
+### Cálculo de diferencia entre datos climáticos actuales y modelo climático futuro
+
+```{r}
+#| label: diferencia
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Calcular la diferencia
+diferencia <- prediccion_futuro - prediccion_actual
+```
+
+### Mapa de idoneidad climática actual y futura (y la diferencia entre ambas) para la distribución de la serpiente Oropel
+
+```{r}
+#| label: probabilidadpresencia
+#| warning: false
+#| message: false
+#| collapse: true
+
+# Paleta de colores del modelo con clima actual
+colores_modelo_actual <- colorNumeric(
+  palette = c("white", "black"),
+  values(prediccion_actual),
+  na.color = "transparent"
+)
+
+# Paleta de colores del modelo con clima futuro
+colores_modelo_futuro <- colorNumeric(
+  palette = c("white", "black"),
+  values(prediccion_futuro),
+  na.color = "transparent"
+)
+
+# Crear paleta de colores para la diferencia
+paleta_diferencia <- colorNumeric(
+  palette = c("yellow", "white", "brown"),
+  domain = c(min(values(diferencia), na.rm = TRUE), max(values(diferencia), na.rm = TRUE)),
+  na.color = "transparent"
+)
+
+# Mapa de la diferencia
+leaflet() |>
+  addTiles(group = "Mapa general") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales"
+  ) |>  
+  addProviderTiles(
+    providers$CartoDB.Positron, 
+    group = "Mapa blanco"
+  ) |>
+  addRasterImage(
+    prediccion_actual,
+    colors = colores_modelo_actual,
+    opacity = 0.6,
+    group = "Modelo con clima actual",
+  ) |>
+  addRasterImage(
+    prediccion_futuro,
+    colors = colores_modelo_futuro,
+    opacity = 0.6,
+    group = "Modelo con clima futuro",
+  ) |>  
+  addRasterImage(
+    diferencia,
+    colors = paleta_diferencia,
+    opacity = 0.6,
+    group = "Diferencia",
+  ) |>  
+  addLegend(
+    title = "Modelo con clima actual",
+    values = values(prediccion_actual),
+    pal = colores_modelo_actual,
+    position = "bottomright",
+    group = "Modelo con clima actual"
+  ) |>    
+  addLegend(
+    title = "Modelo con clima futuro",
+    values = values(prediccion_futuro),
+    pal = colores_modelo_futuro,
+    position = "bottomright",
+    group = "Modelo con clima futuro"
+  ) |>     
+  addLegend(
+    title = "Diferencia",
+    values = values(diferencia),
+    pal = paleta_diferencia,
+    position = "bottomleft",
+    group = "Diferencia"
+  ) |>  
+  addLayersControl(
+    # control de capas
+    baseGroups = c("Mapa general", "Imágenes satelitales", "Mapa blanco"),
+    overlayGroups = c(
+      "Modelo con clima actual",
+      "Modelo con clima futuro",
+      "Diferencia"
+    )
+  ) |>
+  hideGroup("Modelo con clima actual") |>
+  hideGroup("Modelo con clima futuro")
+```
+
+### Mapa binario de presencia y ausencia de la serpiente Oropel para clima actual, futuro y la diferencia entre ambas
+
+```{r}
+#| label: mapabinario
+#| warning: false
+#| message: false
+#| collapse: true
+
+
+# Definir el umbral
+umbral <- 0.4
+
+# Crear el raster binario
+prediccion_binaria_actual <- (prediccion_actual >= umbral) * 1
+prediccion_binaria_futura <- (prediccion_futuro >= umbral) * 1
+prediccion_binaria_diferencia <- (diferencia >= umbral) * 1
+
+# Crear la paleta de colores para el raster binario actual
+colores_prediccion_binaria <- colorFactor(
+  palette = c("transparent", "#458B00"),  # "transparent" para las áreas no adecuadas
+  domain = c(0, 1),
+  na.color = "transparent"
+)
+
+# Mapa
+leaflet() |>
+  addTiles(group = "Mapa general") |>
+  addProviderTiles(
+    providers$Esri.WorldImagery, 
+    group = "Imágenes satelitales"
+  ) |>
+  addProviderTiles(
+    providers$CartoDB.Positron, 
+    group = "Mapa blanco"
+  ) |>
+  addRasterImage(
+    prediccion_binaria_actual,
+    colors = colores_prediccion_binaria,
+    opacity = 0.6,
+    group = "Modelo de distribución binario actual",
+  ) |>
+    addRasterImage(
+    prediccion_binaria_futura,
+    colors = colores_prediccion_binaria,
+    opacity = 0.6,
+    group = "Modelo de distribución binario futuro",
+  ) |>
+    addRasterImage(
+    prediccion_binaria_diferencia,
+    colors = colores_prediccion_binaria,
+    opacity = 0.6,
+    group = "Modelo de distribución binario diferencia",
+  ) |>
+  addCircleMarkers(
+    data = presencia,
+    stroke = FALSE,
+    radius = 3,
+    fillColor = '#FFB90F',
+    fillOpacity = 1,
+    popup = paste(
+      paste0("<strong>País: </strong>", presencia$country),
+      paste0("<strong>Localidad: </strong>", presencia$locality),
+      paste0("<strong>Fecha: </strong>", presencia$eventDate),
+      paste0("<strong>Fuente: </strong>", presencia$institutionCode),
+      paste0("<a href='", presencia$occurrenceID, "'>Más información</a>"),
+      sep = '<br/>'
+    ),
+    group = "Registros de Bothriechis schlegelii"
+  ) |>
+  addLegend(
+    title = "Modelo de distribución binario",
+    labels = c("Ausencia", "Presencia"),
+    colors = c("transparent", "#458B00"),
+    position = "bottomright",
+    group = "Modelo de distribución binario"
+  ) |>
+  addLayersControl(
+    baseGroups = c("Mapa general", "Imágenes satelitales", "Mapa blanco"),
+    overlayGroups = c(
+      "Modelo de distribución binario actual",
+      "Modelo de distribución binario futuro",
+      "Modelo de distribución binario diferencia",
+      "Registros de Bothriechis schlegelii"
+    )
+  ) |>
+  hideGroup("Modelo de distribución binario diferencia") |>
+  hideGroup("Modelo de distribución binario futuro")
+```
+
+
+### Comentarios sobre el modelo y sus resultados
+
+
+El primer bloque de código de la aplicación del __modelo Maxent__ establece las variables para la ejecución del modelo. Se establece una *semilla (seed)* para que cada vez que se ejecute el código se obtengan los mismos resultados. Fija la manera en que se generan los números aleatorios. A continuación se le indica la cantidad de registros de presencia y se le asignan las proporciones de *entrenamiento* y *evaluación*. La primera se establece al principio del documento.
+
+Posteriormente, se convierten los datos (actuales y futuros) al formato *Ráster Stack* para que puedan ser leídos por el modelo Maxent.
+
+Con el objetivo de evaluar el modelo, se calcula la __AUC (Area Under the Curve)__ y se grafica la __curva ROC (Receiver Operating Characteristic)__. El resultado de la AUC, calculado para los datos actuales climáticos, es de 0.967 y se observa que la curva ROC se acerca rápidamente al eje Y, lo que significa que el modelo tiene una alta tasa de verdadero positivos.
+
+Por último se calcula la diferencia entre los datos actuales climáticos y el modelo futuro (teniendo en cuenta que se tomó el escenario más optimista) y se cartografiaron los resultados:
+
+\-*Mapa de idoneidad*, es decir, probabilidad presencia de la serpiente Oropel en las características climáticas actuales, futuras y en la diferencia entre ambas.
+
+\-*Mapa binario* de ausencia y presencia de la serpiente Oropel en escenario actual, futuro y la diferencia entre ambos con un umbral de 0.4.
